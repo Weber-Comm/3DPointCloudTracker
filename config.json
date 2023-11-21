@@ -1,0 +1,11 @@
+{
+    "eps": 0.25,
+    "min_samples": 5.0,
+    "marker_size": 8.0,
+    "alpha": 0.85,
+    "xlim_min": -3.5,
+    "xlim_max": 7.5,
+    "ylim_min": -3.5,
+    "ylim_max": 7.5,
+    "refresh_rate": 0.6000000000000001
+}
