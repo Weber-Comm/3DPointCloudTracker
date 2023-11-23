@@ -21,8 +21,6 @@ from CustomOut import custom_print, init_log_file
 
 data_receiving_completed = threading.Event()
 
-import datetime
-
 def receiver_thread(host, port, app):
     global count, data_receiving_completed
 
@@ -52,14 +50,14 @@ def receiver_thread(host, port, app):
             point_cloud = np.frombuffer(data, dtype=np.float64).reshape(-1, 3)
 
             # Use a lock to ensure thread-safe updating of shared variables
-            app.lock.acquire()
+            app.lockA.acquire()
             try:
                 app.point_cloud_data = point_cloud
-                app.update_count(count)
+                app.update_count_label(count)
                 app.data_processed = False
                 
             finally:
-                app.lock.release()
+                app.lockA.release()
 
             # Output the received data information
             custom_print(f"Received data #{count}: size = {len(data)} bytes")
@@ -71,17 +69,17 @@ def process_data_thread(app):
     while not data_receiving_completed.is_set():
         
         if not app.clustering_active or app.data_processed:
-            time.sleep(0.1)  # If processing is not activated, wait briefly
+            time.sleep(0.05)  # If processing is not activated, wait briefly
             continue
 
-        app.lock.acquire()
+        app.lockA.acquire()
         try:
             point_cloud = app.point_cloud_data
             if point_cloud is not None:
                 # app.point_cloud_data = None
                 app.data_processed = True  # Set to True when data processing is complete
         finally:
-            app.lock.release()
+            app.lockA.release()
 
         if point_cloud is not None:
             eps = app.eps_spinbox.value()
@@ -93,13 +91,82 @@ def process_data_thread(app):
             elapsed_time = end_time - start_time
             custom_print(f"DBSCAN processed #{count}: elapsed time = {elapsed_time} seconds")
             
-            app.lock.acquire()
+            app.lockA.acquire()
             try:
                 app.clustered_data = (point_cloud, labels)
             finally:
-                app.lock.release()
+                app.lockA.release()
+
+            if app.target_x is not None and app.target_y is not None and app.target_z is not None:
+                centroids = calculate_centroids(point_cloud, labels)
+                nearest_cluster = find_nearest_cluster(centroids, point_cloud, labels,
+                                                       app.target_x, app.target_y, app.target_z,
+                                                       app.min_volume_spinbox.value(),
+                                                       app.max_volume_spinbox.value(),
+                                                       app.min_points_spinbox.value())
+                
+                app.lockB.acquire()
+                try:
+                    app.is_target_newest_for_guest = False
+                finally:
+                    app.lockB.release()
+
+                if nearest_cluster is not None:
+                    class_member_mask = (labels == nearest_cluster)
+                    xyz = point_cloud[class_member_mask]
+
+                    # Calculate the boundary coordinates of the cluster
+                    min_coords = np.min(xyz, axis=0)
+                    max_coords = np.max(xyz, axis=0)
+                    mean_coords = np.mean(xyz, axis=0)
+
+                    # Create a 3D box for the target cluster
+                    app.lockB.acquire()
+                    try:
+                        app.box = create_3d_box(min_coords, max_coords)
+                        app.volume = (max_coords[0] - min_coords[0]) * (max_coords[1] - min_coords[1]) * (max_coords[2] - min_coords[2])
+                        app.target_x, app.target_y, app.target_z = mean_coords
+                        app.target_xyz_seq = np.vstack((app.target_xyz_seq, mean_coords)) if app.target_xyz_seq is not None else mean_coords
+                    finally:
+                        app.lockB.release()
 
         else:
+            time.sleep(0.01)
+
+def transmitter_thread(host, port, app):
+    '''
+    Send app.target_x, app.target_y, app.target_z to another guest.
+    '''
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        
+        try:
+            s.connect((host, port))
+        except socket.error as e:
+            custom_print("Socket error: " + str(e))
+            return
+        
+
+        while True:
+
+            if app.is_target_newest_for_guest:
+                time.sleep(0.01)
+                continue
+
+            data = f"{app.target_x},{app.target_y},{app.target_z}"
+
+            app.lockB.acquire()
+            try:
+                app.is_target_newest_for_guest = True
+            finally:
+                app.lockB.release()
+
+            try:
+                s.sendall(data.encode())
+                custom_print(f"Transmited data: {data.encode()}, size = {len(data)} bytes")
+            except socket.error as e:
+                custom_print("Socket error during send: " + str(e))
+                break
+
             time.sleep(0.01)
 
 
@@ -156,18 +223,14 @@ def find_nearest_cluster(centroids, point_cloud, labels, x0, y0, z0, min_volume,
 def visualize_clusters(ax, 
                        point_cloud, 
                        labels, 
+                       box=None, 
+                       target_xyz_seq=None,
                        marker_size=5, 
                        alpha=0.8, 
                        xlim=None, 
                        ylim=None, 
                        zlim=None,
-                       target_x=None, 
-                       target_y=None, 
-                       target_z=None, 
-                       retain_rate=1, 
-                       min_volume=0.01, 
-                       max_volume=1,
-                       min_points=10):
+                       retain_rate=1):
     # Ensure that 0 <= retain_rate <= 1
     retain_rate = max(0, min(retain_rate, 1))
 
@@ -189,21 +252,12 @@ def visualize_clusters(ax,
         xyz = point_cloud[class_member_mask]
         ax.scatter(xyz[:, 0], xyz[:, 1], xyz[:, 2], s=marker_size, c=[col], alpha=alpha)
 
-    if target_x is not None and target_y is not None and target_z is not None:
-        centroids = calculate_centroids(point_cloud, labels)
-        nearest_cluster = find_nearest_cluster(centroids, point_cloud, labels, target_x, target_y, target_z, min_volume, max_volume, min_points)
+    if box is not None:
+        ax.add_collection3d(Poly3DCollection(box, facecolors='cyan', linewidths=1, edgecolors='r', alpha=0.1))
 
-        if nearest_cluster is not None:
-            class_member_mask = (labels == nearest_cluster)
-            xyz = point_cloud[class_member_mask]
-
-            # Calculate the boundary coordinates of the cluster
-            min_coords = np.min(xyz, axis=0)
-            max_coords = np.max(xyz, axis=0)
-
-            # Create a 3D box for the target cluster
-            box = create_3d_box(min_coords, max_coords)
-            ax.add_collection3d(Poly3DCollection(box, facecolors='cyan', linewidths=1, edgecolors='r', alpha=0.1))
+    # Check if target_xyz_seq is a numpy array of shape (N, 3), where N >= 1, rather than a single 3D point (3,)
+    if target_xyz_seq is not None and target_xyz_seq.ndim > 1:
+        ax.plot(target_xyz_seq[:, 0], target_xyz_seq[:, 1], target_xyz_seq[:, 2], color='black', linewidth=2)
 
     ax.set_title('Clustered 3D points')
     ax.set_xlabel('X')
@@ -221,6 +275,7 @@ def visualize_raw_point_cloud(ax,
                               point_cloud, 
                               marker_size=5, 
                               alpha=0.8, 
+                              target_xyz=None,
                               xlim=None, 
                               ylim=None, 
                               zlim=None, 
@@ -246,18 +301,18 @@ def visualize_raw_point_cloud(ax,
         retain_indices = np.random.choice(num_points, int(num_points * retain_rate), replace=False)
         point_cloud = point_cloud[retain_indices]
 
-    # 绘制点云
+    # plot point cloud
         
-    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2], color='blue', s=marker_size, alpha=alpha)
-    print("QQQ")
+    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2], color='blue', s=marker_size, alpha=alpha/2)
 
-    # 设置标题和坐标轴标签
+    # Target point
+    ax.scatter(target_xyz[0], target_xyz[1], target_xyz[2], color='red', s=30, alpha=1)
+
     ax.set_title('Raw 3D Point Cloud')
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
 
-    # 设置坐标轴限制
     if xlim:
         ax.set_xlim(xlim)
     if ylim:
@@ -281,6 +336,7 @@ def create_3d_box(min_coords, max_coords):
         [(x[0], y[0], z[0]), (x[1], y[0], z[0]), (x[1], y[0], z[1]), (x[0], y[0], z[1])],  # 前面
         [(x[0], y[1], z[0]), (x[1], y[1], z[0]), (x[1], y[1], z[1]), (x[0], y[1], z[1])]   # 后面
     ]
+
 
     return verts
 
@@ -307,20 +363,32 @@ class App(QMainWindow):
 
         self.config = load_config("config.json")
         self.initUI()
+
+        self.lockA = threading.Lock()
         self.clustered_data = (None, None)
-        self.lock = threading.Lock()
         self.point_cloud_data = None
         self.data_processed = True
 
-        self.target_x = 0
-        self.target_y = 0
-        self.target_z = 0
+        self.lockB = threading.Lock()
+        self.initTarget()
 
-        self.clustering_active = False  # 标志控制聚类
-        self.plotting_active = True    # 标志控制画图
+        self.clustering_active = False 
+        self.plotting_active = True 
 
         self.update_button_styles()
 
+    def initTarget(self):
+        self.lockB.acquire()
+        try:
+            self.target_x = self.initial_x_spinbox.value()
+            self.target_y = self.initial_y_spinbox.value()
+            self.target_z = self.initial_z_spinbox.value()
+            self.target_xyz_seq = None
+            self.box = None
+            self.volume = None
+            self.is_target_newest_for_guest = False
+        finally:
+            self.lockB.release()
 
     def initUI(self):
         self.setWindowTitle(self.title)
@@ -338,11 +406,12 @@ class App(QMainWindow):
         hlayout0_container = QWidget()  # Create container widget
         hlayout0 = QHBoxLayout(hlayout0_container)  # Add layout to the container
         self.count_label = QLabel("Count: 0", self)
+        self.count_label.setFixedSize(100, 10)
         self.target_xyz_label = QLabel(None, self)  # Assuming you want to display some text
-        self.other_label = QLabel("Other Label", self)  # Assuming you want to display some text
+        self.volume_label = QLabel(None, self)  # Assuming you want to display some text
         hlayout0.addWidget(self.count_label)
         hlayout0.addWidget(self.target_xyz_label)
-        hlayout0.addWidget(self.other_label)
+        hlayout0.addWidget(self.volume_label)
         hlayout0_container.setStyleSheet("background-color: lightblue;")  # Set background color for container
         layout.addWidget(hlayout0_container)
             
@@ -351,34 +420,29 @@ class App(QMainWindow):
         # EPS and Min Samples
         self.eps_layout, self.eps_spinbox = self.create_double_spinbox("EPS", 0.01, 2, 0.15, 0.05)
         self.min_samples_layout, self.min_samples_spinbox = self.create_double_spinbox("Min Samples", 1, 50, 5, 1)
-        hlayout1 = QHBoxLayout()
-        hlayout1.addLayout(self.eps_layout)
-        hlayout1.addLayout(self.min_samples_layout)
-        layout.addLayout(hlayout1)
-
         # Marker Size and Alpha
         self.marker_size_layout, self.marker_size_spinbox = self.create_double_spinbox("Marker Size", 0.2, 10, 5, 0.05)
         self.alpha_layout, self.alpha_spinbox = self.create_double_spinbox("Alpha", 0.1, 1.0, 0.8, 0.05)
-        hlayout2 = QHBoxLayout()
-        hlayout2.addLayout(self.marker_size_layout)
-        hlayout2.addLayout(self.alpha_layout)
-        layout.addLayout(hlayout2)
+        hlayout1 = QHBoxLayout()
+        hlayout1.addLayout(self.eps_layout)
+        hlayout1.addLayout(self.min_samples_layout)
+        hlayout1.addLayout(self.marker_size_layout)
+        hlayout1.addLayout(self.alpha_layout)
+        layout.addLayout(hlayout1)
 
         # X-Min and X-Max
         self.xlim_min_layout, self.xlim_min_spinbox = self.create_double_spinbox("X-Min", -15, 15, -5, 0.5)
         self.xlim_max_layout, self.xlim_max_spinbox = self.create_double_spinbox("X-Max", -15, 15, 5, 0.5)
-        hlayout3 = QHBoxLayout()
-        hlayout3.addLayout(self.xlim_min_layout)
-        hlayout3.addLayout(self.xlim_max_layout)
-        layout.addLayout(hlayout3)
-
         # Y-Min and Y-Max
         self.ylim_min_layout, self.ylim_min_spinbox = self.create_double_spinbox("Y-Min", -15, 15, -5, 0.5)
         self.ylim_max_layout, self.ylim_max_spinbox = self.create_double_spinbox("Y-Max", -15, 15, 5, 0.5)
-        hlayout4 = QHBoxLayout()
-        hlayout4.addLayout(self.ylim_min_layout)
-        hlayout4.addLayout(self.ylim_max_layout)
-        layout.addLayout(hlayout4)
+
+        hlayout3 = QHBoxLayout()
+        hlayout3.addLayout(self.xlim_min_layout)
+        hlayout3.addLayout(self.xlim_max_layout)
+        hlayout3.addLayout(self.ylim_min_layout)
+        hlayout3.addLayout(self.ylim_max_layout)
+        layout.addLayout(hlayout3)
 
         self.initial_x_layout, self.initial_x_spinbox = self.create_double_spinbox("Initial-x", -1000, 1000, 0, 0.1)
         self.initial_y_layout, self.initial_y_spinbox = self.create_double_spinbox("Initial-y", -1000, 1000, 0, 0.1)
@@ -389,27 +453,36 @@ class App(QMainWindow):
         hlayout5.addLayout(self.initial_z_layout)
         layout.addLayout(hlayout5)
 
+        self.min_volume_layout, self.min_volume_spinbox = self.create_double_spinbox("Min-Volume", 0, 10, 0.01, 0.02)
+        self.max_volume_layout, self.max_volume_spinbox = self.create_double_spinbox("Max-Volume", 0, 10, 1, 0.02)
+        self.min_points_layout, self.min_points_spinbox = self.create_double_spinbox("Min_Points", 0, 1000, 5, 2)
+        hlayout6 = QHBoxLayout()
+        hlayout6.addLayout(self.min_volume_layout)
+        hlayout6.addLayout(self.max_volume_layout)
+        hlayout6.addLayout(self.min_points_layout)
+        layout.addLayout(hlayout6)
+
         # Refresh Rate and Refresh Button
         self.refresh_rate_layout, self.refresh_rate_spinbox = self.create_double_spinbox("Refresh Rate (s)", 0.2, 100, 1.0, 0.2)
         # self.refresh_button = QPushButton('Refresh', self)
         # self.refresh_button.clicked.connect(self.update_plot)
-        hlayout6 = QHBoxLayout()
-        hlayout6.addLayout(self.refresh_rate_layout)
+        hlayout7 = QHBoxLayout()
+        hlayout7.addLayout(self.refresh_rate_layout)
         # hlayout5.addWidget(self.refresh_button)
         # layout.addLayout(hlayout5)
 
-        # 聚类控制按钮
-        self.toggle_clustering_button = QPushButton('Activate Clustering', self)
+        # Clustering control button
+        self.toggle_clustering_button = QPushButton('Activate Clustering and Tracking', self)
         self.toggle_clustering_button.clicked.connect(self.toggle_clustering)
 
-        # 画图控制按钮
+        # Plotting control button
         self.toggle_plotting_button = QPushButton('Pause Plotting', self)
         self.toggle_plotting_button.clicked.connect(self.toggle_plotting)
 
         # hlayout6 = QHBoxLayout()
-        hlayout6.addWidget(self.toggle_clustering_button)
-        hlayout6.addWidget(self.toggle_plotting_button)
-        layout.addLayout(hlayout6)
+        hlayout7.addWidget(self.toggle_clustering_button)
+        hlayout7.addWidget(self.toggle_plotting_button)
+        layout.addLayout(hlayout7)
 
         self.canvas = PlotCanvas(self, width=5, height=8)
         layout.addWidget(self.canvas)
@@ -434,6 +507,9 @@ class App(QMainWindow):
         self.initial_x_spinbox.setValue(self.config.get("initial_x", 0))
         self.initial_y_spinbox.setValue(self.config.get("initial_y", 0))
         self.initial_z_spinbox.setValue(self.config.get("initial_z", 0))
+        self.min_volume_spinbox.setValue(self.config.get("min_volume", 0))
+        self.max_volume_spinbox.setValue(self.config.get("max_volume", 0))
+        self.min_points_spinbox.setValue(self.config.get("min_points", 0))
         self.refresh_rate_spinbox.setValue(self.config.get("refresh_rate", 1))
 
         self.eps_spinbox.valueChanged.connect(self.on_parameter_changed)
@@ -447,6 +523,9 @@ class App(QMainWindow):
         self.initial_x_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.initial_y_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.initial_z_spinbox.valueChanged.connect(self.on_parameter_changed)
+        self.min_volume_spinbox.valueChanged.connect(self.on_parameter_changed)
+        self.max_volume_spinbox.valueChanged.connect(self.on_parameter_changed)
+        self.min_points_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.refresh_rate_spinbox.valueChanged.connect(self.on_parameter_changed)
 
     def on_parameter_changed(self):
@@ -462,6 +541,9 @@ class App(QMainWindow):
         self.config["initial_x"] = self.initial_x_spinbox.value()
         self.config["initial_y"] = self.initial_y_spinbox.value()
         self.config["initial_z"] = self.initial_z_spinbox.value()
+        self.config["min_volume"] = self.min_volume_spinbox.value()
+        self.config["max_volume"] = self.max_volume_spinbox.value()
+        self.config["min_points"] = self.min_points_spinbox.value()
         self.config["refresh_rate"] = self.refresh_rate_spinbox.value()
 
         save_config("config.json", self.config)
@@ -470,7 +552,8 @@ class App(QMainWindow):
         self.config = load_config("config.json")
         self.clustering_active = not self.clustering_active
         self.update_button_styles()
-        custom_print(f"Clustering {'started' if self.clustering_active else 'stopped'}")
+        self.initTarget()
+        custom_print(f"Clustering and tracking {'started' if self.clustering_active else 'stopped'}")
 
     def toggle_plotting(self):
         self.config = load_config("config.json")
@@ -481,10 +564,10 @@ class App(QMainWindow):
     def update_button_styles(self):
         if self.clustering_active:
             # self.toggle_clustering_button.setStyleSheet("background-color: green;")
-            self.toggle_clustering_button.setText('Pause Clustering')
+            self.toggle_clustering_button.setText('Pause Clustering and Tracking')
         else:
             # self.toggle_clustering_button.setStyleSheet("background-color: red;")
-            self.toggle_clustering_button.setText('Activate Clustering')
+            self.toggle_clustering_button.setText('Activate Clustering and Tracking')
 
         if self.plotting_active:
             # self.toggle_plotting_button.setStyleSheet("background-color: green;")
@@ -493,12 +576,23 @@ class App(QMainWindow):
             # self.toggle_plotting_button.setStyleSheet("background-color: red;")
             self.toggle_plotting_button.setText('Activate Plotting')
 
-    def update_count(self, count):
+    def update_count_label(self, count):
         self.count_label.setText(f"Count: {count}")
 
-    def update_target_xyz(self):
-        self.target_xyz_label.setText(f"target x: {self.target_x}, target y: {self.target_y}, target z: {self.target_z}")
+    def update_target_xyz_label(self):
+        target_x_value_string = f"{self.target_x}"
+        target_x_value_string = target_x_value_string[:target_x_value_string.find('.') + 3]
+        target_y_value_string = f"{self.target_y}"
+        target_y_value_string = target_y_value_string[:target_y_value_string.find('.') + 3]
+        target_z_value_string = f"{self.target_z}"
+        target_z_value_string = target_z_value_string[:target_z_value_string.find('.') + 3]
+        self.target_xyz_label.setText(f"Target x: {target_x_value_string}, Target y: {target_y_value_string}, Target z: {target_z_value_string}")
+        
 
+    def update_volume_label(self):
+        volume_value_string = f"{self.volume}"
+        volume_value_string = volume_value_string[:volume_value_string.find('.') + 4]
+        self.volume_label.setText("Volume: " + volume_value_string)
 
     def update_refresh_rate(self):
         refresh_rate = self.refresh_rate_spinbox.value() * 1000  # Convert to milliseconds
@@ -521,12 +615,13 @@ class App(QMainWindow):
 
         return layout, spinbox
     
+
     def update_plot(self):
 
         if not self.plotting_active:
             return
 
-        self.lock.acquire()
+        self.lockA.acquire()
         try:
             if self.clustering_active:
                 point_cloud, labels = self.clustered_data
@@ -536,34 +631,32 @@ class App(QMainWindow):
             if point_cloud is None:
                 return
         finally:
-            self.lock.release()
+            self.lockA.release()
         
-        # 清除现有的绘图
         self.canvas.axes.clear()
         
-        print(point_cloud is not None, labels is not None)
-        # 如果有聚类标签，则按聚类绘制
+        # If there are cluster labels, plot by cluster and plot the target cluster box
         if labels is not None and self.clustering_active:
             visualize_clusters(self.canvas.axes, point_cloud, labels,
+                               self.box,
+                               self.target_xyz_seq,
                                self.marker_size_spinbox.value(),
                                self.alpha_spinbox.value(),
                                (self.xlim_min_spinbox.value(), self.xlim_max_spinbox.value()),
-                               (self.ylim_min_spinbox.value(), self.ylim_max_spinbox.value()),
-                               target_x=self.target_x,
-                               target_y=self.target_y,
-                               target_z=self.target_z)
+                               (self.ylim_min_spinbox.value(), self.ylim_max_spinbox.value()))
         else:
-            # 如果没有聚类标签，则使用单一颜色绘制所有点
-            print("zzzzzzzzzzzzz")
+            # If there are no cluster labels, plot all points with a single color
             visualize_raw_point_cloud(self.canvas.axes, point_cloud,
                                       self.marker_size_spinbox.value(),
                                       self.alpha_spinbox.value(),
+                                      (self.initial_x_spinbox.value(), self.initial_y_spinbox.value(), self.initial_z_spinbox.value()), 
                                       (self.xlim_min_spinbox.value(), self.xlim_max_spinbox.value()),
                                       (self.ylim_min_spinbox.value(), self.ylim_max_spinbox.value()))
 
-        # 重新绘制画布
+        # Re-draw the canvas
         self.canvas.draw()
-        self.update_target_xyz()
+        self.update_target_xyz_label()
+        self.update_volume_label()
         
 
 class PlotCanvas(FigureCanvas):
@@ -587,9 +680,11 @@ if __name__ == '__main__':
 
     receiver = threading.Thread(target=receiver_thread, args=('localhost', 12345, ex))
     processor = threading.Thread(target=process_data_thread, args=(ex,))
+    transmitter = threading.Thread(target=transmitter_thread, args=('localhost', 54321, ex))
 
     receiver.start()
     processor.start()
+    transmitter.start()
 
     ex.show()
     sys.exit(app.exec_())

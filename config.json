@@ -2,13 +2,16 @@
     "eps": 0.25,
     "min_samples": 5.0,
     "marker_size": 0.6,
-    "alpha": 0.8,
+    "alpha": 0.7,
     "xlim_min": -3.5,
     "xlim_max": 7.0,
     "ylim_min": -3.5,
     "ylim_max": 7.5,
-    "refresh_rate": 0.4,
-    "initial_x": 0.0,
-    "initial_y": 2.7755575615628914e-17,
-    "initial_z": 1.3877787807814457e-17
+    "refresh_rate": 0.2,
+    "initial_x": 2.5,
+    "initial_y": -1.0,
+    "initial_z": 0.0,
+    "min_volume": 0.01,
+    "max_volume": 0.7,
+    "min_points": 10.0
 }
