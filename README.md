@@ -27,7 +27,7 @@ The `guest.py` script creates a subprocess, the **receiver thread**, which is us
 Clustering: 
 
 1. `EPS`: a parameter for the DBSCAN clustering algorithm. It specifies the maximum distance between two samples for them to be considered as in the same neighborhood. A smaller EPS value means that points need to be closer together to be considered part of the same cluster, leading to a greater number of smaller clusters.
-2. `Min Samples`: a parameter for the DBSCAN clustering algorithm. It represents the minimum number of points required to form a cluster. A higher value will result in fewer clusters, as it requires more points to be close together (within the EPS distance) to form a cluster
+2. `Min Samples`: a parameter for the DBSCAN clustering algorithm. It represents the minimum number of points required to form a cluster. A higher value will result in fewer clusters, as it requires more points to be close together (within the EPS distance) to form a cluster.
 
 Canvas and plotting: 
 
