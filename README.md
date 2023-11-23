@@ -8,7 +8,7 @@ The `server.py` script reads 3D LiDAR point clouds from a specified path (which 
 
 The `client.py` script's **receiver thread** continuously receives point clouds from **Network Port 1**. The **processor thread** asynchronously processes the point clouds, using DBSCAN clustering, and persistently tracks a particular cluster (the **target**) by setting an initial anchor point. The **transmitter thread** sends the tracking results, `ex.target_x`, `ex.target_y`, and `ex.target_z`, in real-time to **Network Port 2**. Key parameters and visualizations are managed through a PyQt GUI interface.
 
-The `guest.py` script creates a subprocess, the **receiver thread**, which is used to receive tracking results,`ex.target_x`, `ex.target_y`, and `ex.target_z` for downstream tasks.
+The `guest.py` script creates a subprocess, the **receiver thread**, which is used to receive tracking results,`ex.target_x`, `ex.target_y`, and `ex.target_z` from **Network Port 2** for downstream tasks.
 
 ### **Operation Steps**
 
@@ -16,7 +16,7 @@ The `guest.py` script creates a subprocess, the **receiver thread**, which is us
 
 ![1](https://github.com/Webersan/3DPointCloudTracker/assets/75790375/48630d52-be5a-4b5e-9cfa-b6259680ecda)
 
-2. Set the initial anchor point (`Initial-x`, `Initial-y`, `Initial-z`) for tracking, and the anchor point should be as close as possible to the object being tracked. Click `Activate Clustering and Tracking` to start the tracking process.
+2. Set the **red initial anchor point** (`Initial-x`, `Initial-y`, `Initial-z`) for tracking, and the anchor point should be as close as possible to the object being tracked. Click `Activate Clustering and Tracking` to start the tracking process.
 
 ![2](https://github.com/Webersan/3DPointCloudTracker/assets/75790375/82dd31d0-dbd1-44b5-b396-5f265e65f05a)
 
