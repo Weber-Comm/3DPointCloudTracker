@@ -14,18 +14,18 @@ global is_newest;
 is_newest = false;
 
 try
-    % 启动接收数据的循环
+    % Receiver Loop
     t1 = timer('ExecutionMode', 'fixedRate', 'Period', 0.005, 'TimerFcn', @receiveData);
     start(t1);
     disp([datestr(datetime('now')) ', start 1'])
 
-    % 启动调用 beamSet 的循环
+    % Call beamSet Loop
     t2 = timer('ExecutionMode', 'fixedRate', 'Period', 0.005, 'TimerFcn', @callBeamSet);
     start(t2);
     disp([datestr(datetime('now')) ', start 2'])
 
 catch e
-    disp(['发生错误: ', e.message]);
+    disp(['!!!ERROR!!!: ', e.message]);
    
     delete(timerfind)
 
@@ -49,7 +49,7 @@ function receiveData(~, ~)
             y = str2double(coords{2});
             z = str2double(coords{3});
             latestXYZ = [x, y, z];
-            hasReceivedData = true; % 更新接收数据标志
+            hasReceivedData = true;
             is_newest = true;
             disp([datestr(datetime('now')) ', received data X: ' num2str(x) ', Y: ' num2str(y) ', Z: ' num2str(z)]);
         end
@@ -81,7 +81,7 @@ end
 function beamSet(x, y, z)
     disp([datestr(datetime('now')) ', beamSet started with X: ' num2str(x) ', Y: ' num2str(y) ', Z: ' num2str(z)]);
     
-    % 模拟 beamSet 操作的持续时间
+    % Simulate beamSet operation by pausing for 0.5 seconds
     pause(0.5);
 
     disp([datestr(datetime('now')) ', beamSet end']);
