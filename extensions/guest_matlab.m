@@ -4,7 +4,7 @@ clear;
 % Please Mannually Run delete(timerfind) after User Terminate
 % !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-global latestXYZ;
+global latestXYZ; %#ok<*GVMIS>
 latestXYZ = [0, 0, 0];
 
 global hasReceivedData;
@@ -17,7 +17,7 @@ try
     % Receiver Loop
     t1 = timer('ExecutionMode', 'fixedRate', 'Period', 0.005, 'TimerFcn', @receiveData);
     start(t1);
-    disp([datestr(datetime('now')) ', start 1'])
+    disp([datestr(datetime('now')) ', start 1']) %#ok<*DATST>
 
     % Call beamSet Loop
     t2 = timer('ExecutionMode', 'fixedRate', 'Period', 0.005, 'TimerFcn', @callBeamSet);
@@ -67,7 +67,7 @@ function callBeamSet(~, ~)
     end
 
     if hasReceivedData && ~isRunning && is_newest
-        isRunning = true;
+        isRunning = true; %#ok<*NASGU>
         try
             beamSet(latestXYZ(1), latestXYZ(2), latestXYZ(3));
         catch e
