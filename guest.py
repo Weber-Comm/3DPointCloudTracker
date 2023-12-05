@@ -4,6 +4,7 @@ import threading
 
 from CustomOut import custom_print, init_log_file
 
+
 class DataReceiver:
     def __init__(self):
         self.lock = threading.Lock()
@@ -24,18 +25,20 @@ class DataReceiver:
                         if not data:
                             break
                         data_string = data.decode()
-                        custom_print(f"Received data: {data_string}, size = {len(data_string)} bytes")
-                        xyz = [float(num) for num in data_string.split(',')]
-                        
+                        custom_print(
+                            f"Received data: {data_string}, size = {len(data_string)} bytes"
+                        )
+                        xyz = [float(num) for num in data_string.split(",")]
+
                         with self.lock:
                             self.target_xyz = data
 
-if __name__ == "__main__":
 
-    init_log_file(log_filename='guest')
+if __name__ == "__main__":
+    init_log_file(log_filename="guest")
 
     data_receiver = DataReceiver()
-    receiver_thread = threading.Thread(target=data_receiver.receiver, args=("localhost", 54321))
+    receiver_thread = threading.Thread(
+        target=data_receiver.receiver, args=("localhost", 54321)
+    )
     receiver_thread.start()
-
-    

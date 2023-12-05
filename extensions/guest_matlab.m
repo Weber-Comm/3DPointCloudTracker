@@ -15,12 +15,12 @@ is_newest = false;
 
 try
     % Receiver Loop
-    t1 = timer('ExecutionMode', 'fixedRate', 'Period', 0.005, 'TimerFcn', @receiveData);
+    t1 = timer('ExecutionMode', 'fixedRate', 'Period', 0.01, 'TimerFcn', @receiveData);
     start(t1);
     disp([datestr(datetime('now')) ', start 1']) %#ok<*DATST>
 
     % Call beamSet Loop
-    t2 = timer('ExecutionMode', 'fixedRate', 'Period', 0.005, 'TimerFcn', @callBeamSet);
+    t2 = timer('ExecutionMode', 'fixedRate', 'Period', 0.01, 'TimerFcn', @callBeamSet);
     start(t2);
     disp([datestr(datetime('now')) ', start 2'])
 

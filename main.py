@@ -1,6 +1,7 @@
 import subprocess
 import os
 
+
 def run_script(script_name):
     """Run a Python script in a new Command Prompt window."""
     try:
@@ -19,11 +20,12 @@ def run_script(script_name):
     except Exception as e:
         print(f"Failed to run {script_name}: {e}")
 
+
 if __name__ == "__main__":
     # Path to your Python scripts
-    server_script = 'server.py'
-    client_script = 'client.py'
-    guest_script = 'guest.py'
+    server_script = "server.py"
+    client_script = "client.py"
+    guest_script = "guest.py"
 
     # Start each script in a new Command Prompt window
     server_process = run_script(server_script)
