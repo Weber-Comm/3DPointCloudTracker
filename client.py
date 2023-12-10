@@ -895,7 +895,9 @@ class App(QMainWindow):
         self.timer.setInterval(int(refresh_rate))
 
     def open_help_url(self):
-        help_url = "https://github.com/Weber-Comm/3DPointCloudTracker"
+        help_url = (
+            "https://github.com/Weber-Comm/3DPointCloudTracker#clientpy-configuration"
+        )
         webbrowser.open(help_url)
 
     def create_double_spinbox(self, label_text, min_val, max_val, init_val, step):
