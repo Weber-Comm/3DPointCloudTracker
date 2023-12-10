@@ -87,11 +87,11 @@ def send_point_cloud_continuously(folder, host="localhost", port=12345):
                 custom_print(
                     f"Sent data #{count}: size = {data_size} bytes, shape = {pc.shape}"
                 )
-                time.sleep(0.3)
+                time.sleep(0.6)
 
 
 if __name__ == "__main__":
     init_log_file(log_filename="server")
     send_point_cloud_continuously(
-        "D:/Backup/SH23/Beam/HardwarePlatform/code_v2/LiDAR_xyz"
+        "D:/Backup/SH23/Beam/HardwarePlatform/code_v2/LiDAR_xyz_2"
     )

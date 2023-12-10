@@ -1,6 +1,6 @@
 {
     "eps": 0.25,
-    "min_samples": 9.0,
+    "min_samples": 15.0,
     "marker_size": 0.6,
     "alpha": 0.7,
     "xlim_min": -3.5,
@@ -8,12 +8,14 @@
     "ylim_min": -3.5,
     "ylim_max": 7.5,
     "refresh_rate": 0.4,
-    "initial_x": 2.6,
-    "initial_y": -0.9,
+    "initial_x": 2.5,
+    "initial_y": 0.3,
     "initial_z": 0.0,
-    "min_volume": 0.030000000000000002,
-    "max_volume": 0.5399999999999997,
+    "max_distance_to_last_centroid": 0.5,
+    "min_volume": 0.03,
+    "max_volume": 0.54,
     "min_area": 0.01,
-    "max_area": 0.68,
-    "min_points": 16.0
+    "max_area": 0.6,
+    "min_points": 12.0,
+    "height_theshold": -0.4
 }

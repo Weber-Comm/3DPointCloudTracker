@@ -4,6 +4,7 @@ import numpy as np
 import threading
 import time
 import json
+import webbrowser
 
 import sys
 from PyQt5.QtWidgets import (
@@ -17,6 +18,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QIcon
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
@@ -68,6 +70,11 @@ def receiver_thread(host, port, app):
             # Convert the received byte data to a point cloud numpy array
             # Ensure that the data type and array shape here match the sender
             point_cloud = np.frombuffer(data, dtype=np.float64).reshape(-1, 3)
+
+            # Remove points with z < height_threshold
+            point_cloud = point_cloud[
+                point_cloud[:, 2] > app.height_theshold_spinbox.value()
+            ]
 
             # Use a lock to ensure thread-safe updating of shared variables
             app.lockA.acquire()
@@ -147,7 +154,16 @@ def process_data_thread(app):
                     app.min_area_spinbox.value(),
                     app.max_area_spinbox.value(),
                     app.min_points_spinbox.value(),
+                    app.last_centroid,
+                    app.max_distance_to_last_centroid_spinbox.value(),
                 )
+
+                app.lockC.acquire()
+                try:
+                    if nearest_cluster is not None:
+                        app.last_centroid = centroids[nearest_cluster]
+                finally:
+                    app.lockC.release()
 
                 app.lockB.acquire()
                 try:
@@ -322,26 +338,26 @@ def find_nearest_cluster(
             class_member_mask = labels == k
             xyz = point_cloud[class_member_mask]
 
-            # Rule: number of points should be greater than min_points
+            # Rule 1: number of points should be greater than min_points
             if len(xyz) < min_points:
                 continue
+
+            # Rule 2: Check distance to the last centroid
+            if last_centroid is not None:
+                distance_to_last_centroid = np.linalg.norm(centroid - last_centroid)
+                if distance_to_last_centroid > max_distance_to_last_centroid:
+                    continue
 
             min_coords = np.min(xyz, axis=0)
             max_coords = np.max(xyz, axis=0)
             volume = np.prod(max_coords - min_coords)
             area = np.prod(max_coords[:2] - min_coords[:2])
 
-            # Rule: volume should be between min_volume and max_volume and area should be between min_area and max_area
+            # Rule 3: volume should be between min_volume and max_volume and area should be between min_area and max_area
             if (min_volume <= volume <= max_volume) and (min_area <= area <= max_area):
                 # Update max_distance and nearest_cluster
                 max_distance = distance
                 nearest_cluster = k
-
-            # Rule: Check distance to the last centroid
-            if last_centroid is not None:
-                distance_to_last_centroid = np.linalg.norm(centroid - last_centroid)
-                if distance_to_last_centroid > max_distance_to_last_centroid:
-                    continue
 
     return nearest_cluster
 
@@ -558,6 +574,9 @@ class App(QMainWindow):
         self.clustering_active = False
         self.plotting_active = True
 
+        self.lockC = threading.Lock()
+        self.last_centroid = None
+
         self.update_button_styles()
 
     def initTarget(self):
@@ -608,17 +627,17 @@ class App(QMainWindow):
         # Create and add controls
         # EPS and Min Samples
         self.eps_layout, self.eps_spinbox = self.create_double_spinbox(
-            "EPS", 0.01, 2, 0.15, 0.05
+            "DBSCAN-EPS", 0.01, 2, 0.15, 0.05
         )
         self.min_samples_layout, self.min_samples_spinbox = self.create_double_spinbox(
-            "Min Samples", 1, 50, 5, 1
+            "DBSCAN-Min-Samples", 1, 50, 5, 1
         )
         # Marker Size and Alpha
         self.marker_size_layout, self.marker_size_spinbox = self.create_double_spinbox(
-            "Marker Size", 0.2, 10, 5, 0.05
+            "Plot-Marker-Size", 0.2, 10, 5, 0.05
         )
         self.alpha_layout, self.alpha_spinbox = self.create_double_spinbox(
-            "Alpha", 0.1, 1.0, 0.8, 0.05
+            "Plot-Alpha", 0.1, 1.0, 0.8, 0.05
         )
         hlayout1 = QHBoxLayout()
         hlayout1.addLayout(self.eps_layout)
@@ -629,17 +648,17 @@ class App(QMainWindow):
 
         # X-Min and X-Max
         self.xlim_min_layout, self.xlim_min_spinbox = self.create_double_spinbox(
-            "X-Min", -15, 15, -5, 0.5
+            "Plot-X-Min", -15, 15, -5, 0.5
         )
         self.xlim_max_layout, self.xlim_max_spinbox = self.create_double_spinbox(
-            "X-Max", -15, 15, 5, 0.5
+            "Plot-X-Max", -15, 15, 5, 0.5
         )
         # Y-Min and Y-Max
         self.ylim_min_layout, self.ylim_min_spinbox = self.create_double_spinbox(
-            "Y-Min", -15, 15, -5, 0.5
+            "Plot-Y-Min", -15, 15, -5, 0.5
         )
         self.ylim_max_layout, self.ylim_max_spinbox = self.create_double_spinbox(
-            "Y-Max", -15, 15, 5, 0.5
+            "Plot-Y-Max", -15, 15, 5, 0.5
         )
 
         hlayout3 = QHBoxLayout()
@@ -658,10 +677,20 @@ class App(QMainWindow):
         self.initial_z_layout, self.initial_z_spinbox = self.create_double_spinbox(
             "Initial-z", -1000, 1000, 0, 0.05
         )
+        (
+            self.height_theshold_layout,
+            self.height_theshold_spinbox,
+        ) = self.create_double_spinbox("H Thres.", -10, 10, -1, 0.1)
+        (
+            self.max_distance_to_last_centroid_layout,
+            self.max_distance_to_last_centroid_spinbox,
+        ) = self.create_double_spinbox("Max D to Last Centroid", 0, 5, 0.5, 0.1)
         hlayout5 = QHBoxLayout()
         hlayout5.addLayout(self.initial_x_layout)
         hlayout5.addLayout(self.initial_y_layout)
         hlayout5.addLayout(self.initial_z_layout)
+        hlayout5.addLayout(self.max_distance_to_last_centroid_layout)
+        hlayout5.addLayout(self.height_theshold_layout)
         layout.addLayout(hlayout5)
 
         self.min_volume_layout, self.min_volume_spinbox = self.create_double_spinbox(
@@ -693,26 +722,28 @@ class App(QMainWindow):
             self.refresh_rate_layout,
             self.refresh_rate_spinbox,
         ) = self.create_double_spinbox("Refresh Rate (s)", 0.2, 100, 1.0, 0.2)
-        # self.refresh_button = QPushButton('Refresh', self)
-        # self.refresh_button.clicked.connect(self.update_plot)
         hlayout7 = QHBoxLayout()
         hlayout7.addLayout(self.refresh_rate_layout)
-        # hlayout5.addWidget(self.refresh_button)
-        # layout.addLayout(hlayout5)
 
         # Clustering control button
         self.toggle_clustering_button = QPushButton(
             "Activate Clustering and Tracking", self
         )
         self.toggle_clustering_button.clicked.connect(self.toggle_clustering)
-
         # Plotting control button
         self.toggle_plotting_button = QPushButton("Pause Plotting", self)
         self.toggle_plotting_button.clicked.connect(self.toggle_plotting)
-
-        # hlayout6 = QHBoxLayout()
         hlayout7.addWidget(self.toggle_clustering_button)
         hlayout7.addWidget(self.toggle_plotting_button)
+
+        # Help button
+        self.help_button = QPushButton(QIcon("assets\question_icon.png"), "", self)
+        self.help_button.clicked.connect(self.open_help_url)
+        button_width = 35
+        self.help_button.setMinimumWidth(button_width)
+        self.help_button.setMaximumWidth(button_width)
+        hlayout7.addWidget(self.help_button)
+
         layout.addLayout(hlayout7)
 
         self.canvas = PlotCanvas(self, width=5, height=8)
@@ -738,6 +769,10 @@ class App(QMainWindow):
         self.initial_x_spinbox.setValue(self.config.get("initial_x", 0))
         self.initial_y_spinbox.setValue(self.config.get("initial_y", 0))
         self.initial_z_spinbox.setValue(self.config.get("initial_z", 0))
+        self.max_distance_to_last_centroid_spinbox.setValue(
+            self.config.get("max_distance_to_last_centroid", 0.5)
+        )
+        self.height_theshold_spinbox.setValue(self.config.get("height_theshold", -1))
         self.min_volume_spinbox.setValue(self.config.get("min_volume", 0))
         self.max_volume_spinbox.setValue(self.config.get("max_volume", 0))
         self.min_area_spinbox.setValue(self.config.get("min_area", 0))
@@ -756,6 +791,10 @@ class App(QMainWindow):
         self.initial_x_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.initial_y_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.initial_z_spinbox.valueChanged.connect(self.on_parameter_changed)
+        self.max_distance_to_last_centroid_spinbox.valueChanged.connect(
+            self.on_parameter_changed
+        )
+        self.height_theshold_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.min_volume_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.max_volume_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.min_area_spinbox.valueChanged.connect(self.on_parameter_changed)
@@ -776,6 +815,10 @@ class App(QMainWindow):
         self.config["initial_x"] = self.initial_x_spinbox.value()
         self.config["initial_y"] = self.initial_y_spinbox.value()
         self.config["initial_z"] = self.initial_z_spinbox.value()
+        self.config[
+            "max_distance_to_last_centroid"
+        ] = self.max_distance_to_last_centroid_spinbox.value()
+        self.config["height_theshold"] = self.height_theshold_spinbox.value()
         self.config["min_volume"] = self.min_volume_spinbox.value()
         self.config["max_volume"] = self.max_volume_spinbox.value()
         self.config["min_area"] = self.min_area_spinbox.value()
@@ -850,6 +893,10 @@ class App(QMainWindow):
             self.refresh_rate_spinbox.value() * 1000
         )  # Convert to milliseconds
         self.timer.setInterval(int(refresh_rate))
+
+    def open_help_url(self):
+        help_url = "https://github.com/Weber-Comm/3DPointCloudTracker"
+        webbrowser.open(help_url)
 
     def create_double_spinbox(self, label_text, min_val, max_val, init_val, step):
         # Create a horizontal layout
