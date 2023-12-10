@@ -31,6 +31,17 @@ data_receiving_completed = threading.Event()
 
 
 def receiver_thread(host, port, app):
+    """
+    Thread function that receives data from a server and updates the application.
+
+    Args:
+        host (str): The IP address or hostname of the server.
+        port (int): The port number of the server.
+        app (Application): The application object that needs to be updated.
+
+    Returns:
+        None
+    """
     global count, data_receiving_completed
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -73,6 +84,15 @@ def receiver_thread(host, port, app):
 
 
 def process_data_thread(app):
+    """
+    Process data in a separate thread.
+
+    Args:
+        app: The application object.
+
+    Returns:
+        None
+    """
     global count, data_receiving_completed
 
     while not data_receiving_completed.is_set():
@@ -124,6 +144,8 @@ def process_data_thread(app):
                     app.target_z,
                     app.min_volume_spinbox.value(),
                     app.max_volume_spinbox.value(),
+                    app.min_area_spinbox.value(),
+                    app.max_area_spinbox.value(),
                     app.min_points_spinbox.value(),
                 )
 
@@ -151,6 +173,9 @@ def process_data_thread(app):
                             * (max_coords[1] - min_coords[1])
                             * (max_coords[2] - min_coords[2])
                         )
+                        app.area = (max_coords[0] - min_coords[0]) * (
+                            max_coords[1] - min_coords[1]
+                        )
                         app.target_x, app.target_y, app.target_z = mean_coords
                         app.target_xyz_seq = (
                             np.vstack((app.target_xyz_seq, mean_coords))
@@ -166,7 +191,15 @@ def process_data_thread(app):
 
 def transmitter_thread(host, port, app):
     """
-    Send app.target_x, app.target_y, app.target_z to another guest.
+    Transmits target coordinates to a specified host and port using a TCP socket.
+
+    Args:
+        host (str): The IP address or hostname of the target guest.
+        port (int): The port number to connect to on the target guest.
+        app (App): An instance of the App class containing the target coordinates.
+
+    Returns:
+        None
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
@@ -191,7 +224,7 @@ def transmitter_thread(host, port, app):
             try:
                 s.sendall(data.encode())
                 custom_print(
-                    f"Transmited data: {data.encode()}, size = {len(data)} bytes"
+                    f"Transmitted data: {data.encode()}, size = {len(data)} bytes"
                 )
             except socket.error as e:
                 custom_print("Socket error during send: " + str(e))
@@ -203,6 +236,14 @@ def transmitter_thread(host, port, app):
 def cluster_points_dbscan(point_cloud, eps=0.15, min_samples=5):
     """
     Cluster a 3D point cloud using DBSCAN algorithm.
+
+    Parameters:
+    - point_cloud (array-like): The input 3D point cloud data.
+    - eps (float, optional): The maximum distance between two samples for them to be considered as in the same neighborhood.
+    - min_samples (int, optional): The minimum number of samples in a neighborhood for a point to be considered as a core point.
+
+    Returns:
+    - labels (array-like): The cluster labels assigned to each point in the input point cloud.
     """
     db = DBSCAN(eps=eps, min_samples=min_samples).fit(point_cloud)
     labels = db.labels_
@@ -210,6 +251,17 @@ def cluster_points_dbscan(point_cloud, eps=0.15, min_samples=5):
 
 
 def calculate_centroids(point_cloud, labels):
+    """
+    Calculate the centroids of different clusters in a point cloud.
+
+    Args:
+        point_cloud (numpy.ndarray): The input point cloud.
+        labels (numpy.ndarray): The labels assigned to each point in the point cloud.
+
+    Returns:
+        dict: A dictionary containing the centroids of different clusters, where the keys are the cluster labels.
+
+    """
     unique_labels = set(labels)
     centroids = {}
     for k in unique_labels:
@@ -222,8 +274,39 @@ def calculate_centroids(point_cloud, labels):
 
 
 def find_nearest_cluster(
-    centroids, point_cloud, labels, x0, y0, z0, min_volume, max_volume, min_points
+    centroids,
+    point_cloud,
+    labels,
+    x0,
+    y0,
+    z0,
+    min_volume,
+    max_volume,
+    min_area,
+    max_area,
+    min_points,
+    last_centroid,
+    max_distance_to_last_centroid,
 ):
+    """
+    Finds the nearest cluster to a target point based on specified criteria.
+
+    Args:
+        centroids (dict): A dictionary of cluster centroids.
+        point_cloud (numpy.ndarray): The point cloud data.
+        labels (numpy.ndarray): The labels corresponding to each point in the point cloud.
+        x0 (float): The x-coordinate of the target point.
+        y0 (float): The y-coordinate of the target point.
+        z0 (float): The z-coordinate of the target point.
+        min_volume (float): The minimum volume of a cluster.
+        max_volume (float): The maximum volume of a cluster.
+        min_area (float): The minimum area of a cluster.
+        max_area (float): The maximum area of a cluster.
+        min_points (int): The minimum number of points in a cluster.
+
+    Returns:
+        int: The label of the nearest cluster that satisfies the specified criteria.
+    """
     nearest_cluster = None
     max_distance = float("inf")
 
@@ -245,17 +328,20 @@ def find_nearest_cluster(
 
             min_coords = np.min(xyz, axis=0)
             max_coords = np.max(xyz, axis=0)
-            volume = (
-                (max_coords[0] - min_coords[0])
-                * (max_coords[1] - min_coords[1])
-                * (max_coords[2] - min_coords[2])
-            )
+            volume = np.prod(max_coords - min_coords)
+            area = np.prod(max_coords[:2] - min_coords[:2])
 
-            # Rule: volume should be between min_volume and max_volume
-            if min_volume <= volume <= max_volume:
+            # Rule: volume should be between min_volume and max_volume and area should be between min_area and max_area
+            if (min_volume <= volume <= max_volume) and (min_area <= area <= max_area):
                 # Update max_distance and nearest_cluster
                 max_distance = distance
                 nearest_cluster = k
+
+            # Rule: Check distance to the last centroid
+            if last_centroid is not None:
+                distance_to_last_centroid = np.linalg.norm(centroid - last_centroid)
+                if distance_to_last_centroid > max_distance_to_last_centroid:
+                    continue
 
     return nearest_cluster
 
@@ -400,37 +486,37 @@ def create_3d_box(min_coords, max_coords):
             (x[0], y[1], z[0]),
             (x[1], y[1], z[0]),
             (x[1], y[0], z[0]),
-        ],  # 底面
+        ],  # Bottom
         [
             (x[0], y[0], z[1]),
             (x[0], y[1], z[1]),
             (x[1], y[1], z[1]),
             (x[1], y[0], z[1]),
-        ],  # 顶面
+        ],  # Top
         [
             (x[0], y[0], z[0]),
             (x[0], y[0], z[1]),
             (x[0], y[1], z[1]),
             (x[0], y[1], z[0]),
-        ],  # 左面
+        ],  # Left
         [
             (x[1], y[0], z[0]),
             (x[1], y[0], z[1]),
             (x[1], y[1], z[1]),
             (x[1], y[1], z[0]),
-        ],  # 右面
+        ],  # Right
         [
             (x[0], y[0], z[0]),
             (x[1], y[0], z[0]),
             (x[1], y[0], z[1]),
             (x[0], y[0], z[1]),
-        ],  # 前面
+        ],  # Front
         [
             (x[0], y[1], z[0]),
             (x[1], y[1], z[0]),
             (x[1], y[1], z[1]),
             (x[0], y[1], z[1]),
-        ],  # 后面
+        ],  # Back
     ]
 
     return verts
@@ -483,6 +569,7 @@ class App(QMainWindow):
             self.target_xyz_seq = None
             self.box = None
             self.volume = None
+            self.area = None
             self.is_target_newest_for_guest = False
         finally:
             self.lockB.release()
@@ -506,10 +593,13 @@ class App(QMainWindow):
         self.target_xyz_label = QLabel(
             None, self
         )  # Assuming you want to display some text
-        self.volume_label = QLabel(None, self)  # Assuming you want to display some text
+        self.volume_label = QLabel(None, self)
+        self.area_label = QLabel(None, self)
+
         hlayout0.addWidget(self.count_label)
         hlayout0.addWidget(self.target_xyz_label)
         hlayout0.addWidget(self.volume_label)
+        hlayout0.addWidget(self.area_label)
         hlayout0_container.setStyleSheet(
             "background-color: lightblue;"
         )  # Set background color for container
@@ -580,12 +670,21 @@ class App(QMainWindow):
         self.max_volume_layout, self.max_volume_spinbox = self.create_double_spinbox(
             "Max-Volume", 0, 10, 1, 0.02
         )
+        self.min_area_layout, self.min_area_spinbox = self.create_double_spinbox(
+            "Min-Area", 0, 10, 0.01, 0.02
+        )
+        self.max_area_layout, self.max_area_spinbox = self.create_double_spinbox(
+            "Max-Area", 0, 10, 0.5, 0.02
+        )
         self.min_points_layout, self.min_points_spinbox = self.create_double_spinbox(
             "Min_Points", 0, 1000, 5, 2
         )
+
         hlayout6 = QHBoxLayout()
         hlayout6.addLayout(self.min_volume_layout)
         hlayout6.addLayout(self.max_volume_layout)
+        hlayout6.addLayout(self.min_area_layout)
+        hlayout6.addLayout(self.max_area_layout)
         hlayout6.addLayout(self.min_points_layout)
         layout.addLayout(hlayout6)
 
@@ -641,6 +740,8 @@ class App(QMainWindow):
         self.initial_z_spinbox.setValue(self.config.get("initial_z", 0))
         self.min_volume_spinbox.setValue(self.config.get("min_volume", 0))
         self.max_volume_spinbox.setValue(self.config.get("max_volume", 0))
+        self.min_area_spinbox.setValue(self.config.get("min_area", 0))
+        self.max_area_spinbox.setValue(self.config.get("max_area", 0))
         self.min_points_spinbox.setValue(self.config.get("min_points", 0))
         self.refresh_rate_spinbox.setValue(self.config.get("refresh_rate", 1))
 
@@ -657,6 +758,8 @@ class App(QMainWindow):
         self.initial_z_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.min_volume_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.max_volume_spinbox.valueChanged.connect(self.on_parameter_changed)
+        self.min_area_spinbox.valueChanged.connect(self.on_parameter_changed)
+        self.max_area_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.min_points_spinbox.valueChanged.connect(self.on_parameter_changed)
         self.refresh_rate_spinbox.valueChanged.connect(self.on_parameter_changed)
 
@@ -675,6 +778,8 @@ class App(QMainWindow):
         self.config["initial_z"] = self.initial_z_spinbox.value()
         self.config["min_volume"] = self.min_volume_spinbox.value()
         self.config["max_volume"] = self.max_volume_spinbox.value()
+        self.config["min_area"] = self.min_area_spinbox.value()
+        self.config["max_area"] = self.max_area_spinbox.value()
         self.config["min_points"] = self.min_points_spinbox.value()
         self.config["refresh_rate"] = self.refresh_rate_spinbox.value()
 
@@ -734,6 +839,11 @@ class App(QMainWindow):
         volume_value_string = f"{self.volume}"
         volume_value_string = volume_value_string[: volume_value_string.find(".") + 4]
         self.volume_label.setText("Volume: " + volume_value_string)
+
+    def update_area_label(self):
+        area_value_string = f"{self.area}"
+        area_value_string = area_value_string[: area_value_string.find(".") + 4]
+        self.area_label.setText("Area: " + area_value_string)
 
     def update_refresh_rate(self):
         refresh_rate = (
@@ -809,6 +919,7 @@ class App(QMainWindow):
         self.canvas.draw()
         self.update_target_xyz_label()
         self.update_volume_label()
+        self.update_area_label()
 
 
 class PlotCanvas(FigureCanvas):
