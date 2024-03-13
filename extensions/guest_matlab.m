@@ -1,10 +1,29 @@
-clear;
+clear all;
 
 % !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 % Please Mannually Run delete(timerfind) after User Terminate
 % !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+addpath('.\MATLAB_Script_USB2VHDCI_20231219\General');
+addpath('.\MATLAB_Script_USB2VHDCI_20231219\UART');
+
+%% 
+
+global PSA
+
+COM_Port_Name='com3';
+UART_Init;
+
+% ANT BLOCK SELECT MODE
+PSA.OpMode=12;
+PSA.ANTSEL = [1 1 1 1,1 1 1 1,1 1 1 1,1 1 1 1];
+PSA.FBS_ID =7;
+SetmmPSA_TR64A;
+
+%%
+
 global B;
-B= readmatrix('beam_index.csv');
+B = readmatrix('beam_index.csv');
 
 global tx ty tz; % Measure the relative position of the antennas and LiDAR
 tx = 0;
@@ -12,8 +31,8 @@ ty = 0;
 tz = 0;
 
 global t_theta t_phi;
-t_theta = deg2rad(-20); % Input in deg
-t_phi = deg2rad(0); % vertical angle is not necessary 
+t_theta = -60; % Input in deg
+t_phi = 0; % vertical angle is not necessary 
 
 global latestXYZ; %#ok<*GVMIS>
 latestXYZ = [0, 0, 0];
@@ -96,6 +115,7 @@ function beamSet(x, y, z)
     global tx ty tz;
     global t_theta t_phi;
     global B;
+    global PSA;
 
     % rigid transformation
 
@@ -104,10 +124,11 @@ function beamSet(x, y, z)
     % Cartesian to spherical
 
     [~, theta, phi] = cartesianToSpherical(xp, yp, zp); % Deg
-    theta = theta + t_theta; %!!!!!!!!!!!!根据坐标系是左手还是右手 theta = -theta + t_theta;
+    % Modify the sign according to whether the coordinate system is a left-handed or right-handed system.
+    theta = -(theta + t_theta); %!!!!!!!!!!!!
     phi = phi + t_phi;
     
-    % Find the beam index
+    % Find the beam index H
 
     theta = mod(theta + 180, 360) - 180;
     [~, index] = min(abs(B(:,2) - theta)); % Nearest theta
@@ -123,10 +144,16 @@ function beamSet(x, y, z)
         warning([datestr(datetime('now')) ', angle exceeds the boundary with beam index: ' num2str(beam_index)]);
     end
     
-    % Simulate beamSet operation by pausing for 0.5 seconds
-    pause(0.5);
+    tic;
+    PSA.OpMode=13;
+    PSA.BeamH=beam_index;
+    PSA.BeamV=0;
+    PSA.TXON=1;
+    PSA.RXON=0;
+    SetmmPSA_TR64A;
 
-    disp([datestr(datetime('now')) ', beamSet end']);
+    disp([datestr(datetime('now')) ', Beam setting successful with beam index ' num2str(beam_index) ', time taken' num2str(toc) 'seconds.']);
+
 end
 
 

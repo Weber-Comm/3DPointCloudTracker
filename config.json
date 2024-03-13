@@ -15,7 +15,7 @@
     "min_volume": 0.01,
     "max_volume": 0.54,
     "min_area": 0.01,
-    "max_area": 0.2999999999999997,
+    "max_area": 0.3,
     "min_points": 8.0,
     "height_theshold": -0.2
 }
