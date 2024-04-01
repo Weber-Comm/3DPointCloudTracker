@@ -1,4 +1,3 @@
-clc;
 delete(instrfindall);
 %COM_Port_Name='com4';
 if (isempty(instrfind({'Port', 'Type'}, {upper(COM_Port_Name), 'serial'})))

@@ -36,7 +36,7 @@ end
 CtrlBody = GenerateFrame(CtrlData,CtrlLength);
 a=sum([CtrlHead CtrlBody]);
 CheckSUM=rem(sum([CtrlHead CtrlBody]),256);
-UART_Send=[CtrlHead CtrlBody CheckSUM]
+UART_Send=[CtrlHead CtrlBody CheckSUM];
 
 
 dec2hex(UART_Send);

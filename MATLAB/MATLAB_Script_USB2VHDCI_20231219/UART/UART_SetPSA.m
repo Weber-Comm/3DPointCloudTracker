@@ -2,7 +2,7 @@
 Generate_CtrlFrame;
 CtrlPacket;
 UART.CheckSum=rem(sum([UART.Head CtrlPacket]),256);
-UART_Frame=[UART.Head CtrlPacket UART.CheckSum]
+UART_Frame=[UART.Head CtrlPacket UART.CheckSum];
 fwrite(COM,UART_Frame,'uint8');
 UART_Back=(fread(COM,8,'uint8')).';
 

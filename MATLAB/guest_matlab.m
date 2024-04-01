@@ -9,6 +9,7 @@ addpath('.\MATLAB_Script_USB2VHDCI_20231219\UART');
 
 %% 
 
+global COM
 global PSA
 
 COM_Port_Name='com3';
@@ -116,6 +117,7 @@ function beamSet(x, y, z)
     global t_theta t_phi;
     global B;
     global PSA;
+    global COM; %#ok<NUSED>
 
     % rigid transformation
 
@@ -125,12 +127,13 @@ function beamSet(x, y, z)
 
     [~, theta, phi] = cartesianToSpherical(xp, yp, zp); % Deg
     % Modify the sign according to whether the coordinate system is a left-handed or right-handed system.
-    theta = -(theta + t_theta); %!!!!!!!!!!!!
+    theta = theta + t_theta; %!!!!!!!!!!!!
     phi = phi + t_phi;
     
     % Find the beam index H
 
     theta = mod(theta + 180, 360) - 180;
+    theta = - theta;
     [~, index] = min(abs(B(:,2) - theta)); % Nearest theta
     beam_index = B(index, 1);
 
