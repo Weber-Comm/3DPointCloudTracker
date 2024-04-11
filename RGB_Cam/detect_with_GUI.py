@@ -1,4 +1,4 @@
-import cv2
+import cv2 
 import time
 from ultralytics import YOLO
 import socket
@@ -96,7 +96,7 @@ if __name__ == "__main__":
                 time_flag_B = time.time()
 
             # Run YOLOv8 inference on the frame
-            results = model(frame)
+            results = model(frame, )
 
             # Visualize the results on the frame
             # Assuming `results.plot()` returns a frame that can be displayed directly
@@ -105,6 +105,7 @@ if __name__ == "__main__":
             # Print the bounding boxes of the detected objects
             for r in results:
                 # print(r.boxes.xyxy)
+                
 
                 if BBOX_MODE == "xyxy":
                     data_str = json.dumps(r.boxes.xyxy.cpu().numpy().tolist())
@@ -116,7 +117,7 @@ if __name__ == "__main__":
                     data_str = json.dumps(r.boxes.xywhn.cpu().numpy().tolist())
                 else:
                     raise ValueError("Invalid BBOX_MODE: " + BBOX_MODE)
-
+                
                 print(data_str)
                 data_queue.put(data_str)
 

@@ -1,3 +1,7 @@
 /logs
 /readme_image
 /__pycache__
+/RGB_Cam/datasets
+/RGB_Cam/runs
+/RGB_Cam/tests
+/RGB_Cam/yolov8.pt
