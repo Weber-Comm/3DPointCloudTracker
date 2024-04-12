@@ -1,0 +1,31 @@
+clear all;
+% 初始化全局变量
+global t_theta;
+t_theta = 0; 
+
+
+t1 = timer('ExecutionMode', 'fixedRate', 'Period', 0.5, 'TimerFcn', @sendData);
+start(t1);
+
+
+% 数据发送函数
+function sendData(~, ~)
+    global t_theta;
+    persistent server;
+
+    if isempty(server)
+        server = tcpserver("127.0.0.1", 33333);
+        disp(['Server initialized on port 33333. Waiting for client connections...']);
+    end
+
+    if server.Connected
+        try
+            write(server, num2str(t_theta), "string");
+            disp([datestr(datetime('now')), ', Sent t_theta: ', num2str(t_theta)]);
+        catch e
+            disp(['Error sending data: ', e.message]);
+        end
+    end
+    % 更新 t_theta 的值
+    t_theta = t_theta + 0.1;
+end

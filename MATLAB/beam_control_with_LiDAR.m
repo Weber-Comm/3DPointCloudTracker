@@ -9,11 +9,11 @@ addpath('.\MATLAB_Script_USB2VHDCI_20231219\UART');
 
 %% 
 
-global COM
-global PSA
-
-COM_Port_Name='com3';
-UART_Init;
+% global COM
+% global PSA
+% 
+% COM_Port_Name='com3';
+% UART_Init;
 
 % ANT BLOCK SELECT MODE
 PSA.OpMode=12;

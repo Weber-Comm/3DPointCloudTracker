@@ -87,7 +87,7 @@ def send_point_cloud_continuously(folder, host="localhost", port=12345):
                 custom_print(
                     f"Sent data #{count}: size = {data_size} bytes, shape = {pc.shape}"
                 )
-                time.sleep(0.2)
+                time.sleep(0.5)
 
 
 if __name__ == "__main__":
